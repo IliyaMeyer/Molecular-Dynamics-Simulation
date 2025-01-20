@@ -10,18 +10,18 @@
 
 #define NUM_THREADS 8
 
-#define DIM 3
-#define LENGTH 15.0
-#define MASS 1
-#define SIGMA 1.0
+#define DIM 3 // number of dimensions in which the particles interact
+#define LENGTH 15.0 // dimensions of the hyper-box in which the particles interact
+#define MASS 1 // mass of each particle
+#define SIGMA 1.0 
 #define EPSILON 1.0
 
 #define RC 2.5 //(2.5 * SIGMA)
 #define DELTA (0.01 * SIGMA)
 
 #define PARTICLES 100
-#define TEMPERATURE 2.0
-#define VELOCITY_STD sqrt(TEMPERATURE / MASS)
+#define TEMPERATURE 2.0 // inital temperature
+#define VELOCITY_STD sqrt(TEMPERATURE/MASS)
 
 #define TEMP_CHANGES 1000//7
 #define TEMP_CHANGE_PROP 0.995//0.999
@@ -29,7 +29,7 @@
 #define PRE_RUNS 0
 #define PRE_RUNS_INTERACTION 0 // number of time steps before data starts being recorded
 #define TIME_SCALE 1
-#define DP 5
+#define DP 1000 // number of data points at each temperature
 #define DATA_POINTS (DP * TEMP_CHANGES)
 
 #define QUALITY_MULTIPLIER 1
@@ -59,11 +59,8 @@ double displace(double current_position, int index, double displacement) {
     return new_position;
 }
 
-
-
-
 particle_list* generate_particles(int num_particles) {
-    int dofs = PARTICLES * DIM;
+    int dofs = PARTICLES * DIM; // degrees of freedom
     int particles_per_dim = ceil(pow(PARTICLES, 1.0/DIM));
     double ds = LENGTH / particles_per_dim * 0.99;
 
@@ -142,7 +139,7 @@ double get_force(double *force_vector, particle *a, particle *b, double *radius)
         }
     } else {
         for (int i = 0; i < DIM; i++) {
-            force_vector[i] = 0; // TODO maybe just return null?
+            force_vector[i] = 0;
         }
     }
     return potential_energy;
@@ -150,7 +147,6 @@ double get_force(double *force_vector, particle *a, particle *b, double *radius)
 
 void get_forces(particle_list *pl, double ***force_matrix) {
 
-    #pragma omp parallel for num_threads(NUM_THREADS)
     for (int i = 0; i < PARTICLES-1; i++)
         for (int j = i+1; j < PARTICLES; j++) {  
             double force_vector[DIM] = {0};
@@ -170,18 +166,13 @@ void forward_system(particle_list *pl, double dt) {
     // update the positions
     get_forces(pl, force_matrix);
     
-    //#pragma omp parallel for num_threads(NUM_THREADS)
     for (int i = 0; i < PARTICLES; i++) 
         for (int j = 0; j < DIM; j++) {
             double a, velocity, position, new_hsv, new_position;
             a = 0.0;
-            //#pragma omp critical
-            {
-                velocity = pl->particles[i]->velocity[j];
-                position = pl->particles[i]->position[j];
-            }
+            velocity = pl->particles[i]->velocity[j];
+            position = pl->particles[i]->position[j];
             for (int k = 0; k < PARTICLES; k++)
-                //# pragma omp atomic
                 a += force_matrix[i][k][j];
             a /= MASS;
             new_hsv = velocity + 0.5 * a * dt;
@@ -249,11 +240,10 @@ void potential_energy_pressure(particle_list *pl, double *data) {
             t2 += sqrt(force)*radius;
         }
     data[1] += t2 / (pow(LENGTH, DIM) * DIM);
-    printf("%f\n", t2 / (pow(LENGTH, DIM) * DIM * (PARTICLES * (PARTICLES-1)/2)));
+    //printf("%f\n", t2 / (pow(LENGTH, DIM) * DIM * (PARTICLES * (PARTICLES-1)/2)));
 }
 
 void heat_up(particle_list *pl, double prop) {
-    printf("Cheese %f\n", prop);
     for (int i = 0; i < PARTICLES; i++)
         for (int j = 0; j < DIM; j++) 
             pl->particles[i]->velocity[j] *= prop;
@@ -281,6 +271,7 @@ int main(int argc, const char * argv[]) {
 
     energy = fopen("energy.txt", "w");
 
+    // initialization
     particle_list *pl = generate_particles(PARTICLES);
     force_matrix = malloc(PARTICLES * sizeof(double**));
     for (int i = 0; i < PARTICLES; i++) {
@@ -294,11 +285,10 @@ int main(int argc, const char * argv[]) {
 
     clock_gettime(CLOCK_MONOTONIC, &start_time);
 
-
-
     for (int _ = 0; _ < PRE_RUNS_INTERACTION; _++) 
         forward_system(pl, DT/2);
 
+    // data collection
     double data[2];
     for (int i = 0; i < TEMP_CHANGES; i++) {
         // equilibriate
@@ -318,21 +308,6 @@ int main(int argc, const char * argv[]) {
         heat_up(pl, TEMP_CHANGE_PROP);
     }
     print_pl(pl);
-
-    /*
-    for (int k = 0; k < TEMP_CHANGES; k++) {
-        for (int i = 0; i < DATA_POINTS; i++) {
-            if (i % 15 == 0)
-                printf("%f%%\n", (double)i/DATA_POINTS * 100);
-            print_pl(pl);
-            potential_energy_pressure(pl, data);
-            fprintf(energy, "%f %f %f\n", kinetic_energy(pl), data[0], data[1]);
-            for (int j = 0; j < RECORDING_STEP; j++)
-                forward_system(pl, DT);
-        }
-    }
-    print_pl(pl);
-    */
 
     clock_gettime(CLOCK_MONOTONIC, &end_time);
 
